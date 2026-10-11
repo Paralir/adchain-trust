@@ -1,0 +1,58 @@
+# =============================================================
+#  AdChain Trust —— .gitignore
+#  原则：运行时产物与本地机密一律不进版本库
+# =============================================================
+
+# ---- 运行时生成的链数据，不应提交 ----
+# chain.json 会在首次启动时自动重建创世块；
+# 提交旧链数据会造成演示污染（评委看到的是别人的历史账）
+chain.json
+chain.json.tmp
+chain.json.broken.*
+
+# ---- 运行时生成的原始明细目录（只上链聚合哈希，原文本地留存）----
+raw_exposure/
+
+# ---- 密钥与本地机密配置 ----
+# .env 存放各角色 API Key，绝不可提交
+.env
+.env.*
+!.env.example
+# 本地密钥覆盖文件（若选择用文件方式配置 API Key）
+config.local.py
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- 测试与覆盖率报告 ----
+.coverage
+htmlcov/
+coverage.xml
+
+# ---- 编辑器 / IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---- 操作系统 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 临时文件 ----
+*.tmp
+*.log

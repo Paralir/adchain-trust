@@ -9,6 +9,8 @@
 chain.json
 chain.json.tmp
 chain.json.broken.*
+# 演示控制台篡改实验的备份，同样是运行时产物
+chain.json.demo.bak
 
 # ---- 运行时生成的原始明细目录（只上链聚合哈希，原文本地留存）----
 raw_exposure/

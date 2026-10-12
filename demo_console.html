@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AdChain Trust · 演示控制台</title>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#ffffff; --line:#e3e6ea; --txt:#1f2328; --sub:#656d76;
+  --blue:#185fa5; --blue-bg:#e6f1fb; --green:#0f6e56; --green-bg:#e1f5ee;
+  --red:#a32d2d; --red-bg:#fcebeb; --amber:#854f0b; --amber-bg:#faeeda;
+  --mono:ui-monospace,Consolas,"Courier New",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font:15px/1.7 "Microsoft YaHei",-apple-system,sans-serif;padding:24px}
+.wrap{max-width:1080px;margin:0 auto}
+header{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 24px;margin-bottom:20px}
+h1{font-size:20px;font-weight:500;margin-bottom:6px}
+.sub{color:var(--sub);font-size:13px}
+.notice{background:var(--amber-bg);border-left:4px solid var(--amber);padding:12px 16px;border-radius:0 8px 8px 0;margin-top:14px;font-size:13px;color:#633806}
+button{font:inherit;cursor:pointer;border:none;border-radius:8px;padding:11px 18px;background:var(--blue);color:#fff;font-size:14px;transition:background .15s}
+button:hover{background:#0c447c}
+button:disabled{background:#b8bfc6;cursor:not-allowed}
+button.ghost{background:var(--card);color:var(--blue);border:1px solid var(--blue)}
+.acts{display:flex;flex-direction:column;gap:14px}
+.act{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.act-h{display:flex;align-items:center;gap:12px;padding:16px 20px;cursor:pointer;user-select:none}
+.no{width:30px;height:30px;border-radius:50%;background:var(--blue-bg);color:var(--blue);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;flex-shrink:0}
+.ti{font-size:15px;font-weight:500;flex:1}
+.tag{font-size:11px;padding:3px 9px;border-radius:20px;background:var(--blue-bg);color:var(--blue);white-space:nowrap}
+.tag.hl{background:var(--amber-bg);color:var(--amber)}
+.body{padding:0 20px 18px;display:none}
+.act.open .body{display:block}
+.act.open{border-color:var(--blue)}
+.desc{font-size:13px;color:var(--sub);margin-bottom:12px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.out{background:#0d1117;color:#c9d1d9;border-radius:8px;padding:14px;font-family:var(--mono);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;max-height:320px;overflow:auto;display:none;margin-top:12px}
+.out.on{display:block}
+.tag2{display:inline-block;padding:2px 9px;border-radius:5px;font-size:12px;font-weight:500}
+.ok{background:var(--green-bg);color:var(--green)}
+.bad{background:var(--red-bg);color:var(--red)}
+.neutral{background:var(--blue-bg);color:var(--blue)}
+.tip{font-size:12px;color:var(--sub);background:#f6f8fa;border-radius:6px;padding:9px 12px;margin-top:10px}
+.badge{display:inline-block;font-size:12px;padding:3px 10px;border-radius:20px;background:var(--green-bg);color:var(--green);margin-left:8px}
+.tips{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin-top:20px}
+.tips li{font-size:13px;color:var(--sub);margin-left:18px;margin-bottom:7px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>AdChain Trust · 演示控制台 <span class="badge">服务运行中</span></h1>
+  <div class="sub">基于联盟链的网文广告多方信任存证系统（模拟存证链 Demo）· 全部操作在本页完成，无需手动填 JSON 或密钥</div>
+  <div class="notice"><b>能力边界说明：</b>本项目为竞赛／教学用途的本地模拟存证链原型。无P2P 网络、无共识算法、无智能合约、无挖矿与代币发行；区块由单进程串行追加。书币为平台内部记账凭证，不可对外流通。</div>
+</header>
+
+<div class="acts" id="acts"></div>
+
+<div class="tips">
+  <div class="sub" style="margin-bottom:10px"><b style="color:var(--txt)">如果某个演示没反应</b></div>
+  <ul>
+    <li>先点上方黄色提示里的「恢复初始状态」，把链重置干净。</li>
+    <li>确认服务窗口还在运行（显示 AdChain Trust 的黑色小窗口）。</li>
+    <li>刷新本页面后重试。</li>
+  </ul>
+</div>
+</div>
+
+<script>
+const KEYS = {
+  advertiser:"demo-advertiser-key-2026",
+  writer:"demo-writer-key-2026",
+  reviewer:"demo-reviewer-key-2026",
+  minister:"demo-minister-key-2026",
+  boss:"demo-boss-key-2026"
+};
+// 演示流程中缓存上一步拿到的订单号与私钥，避免人工复制
+let ctx = { order_id:null, priv:null, deposit:"ADV_DEMO_01", atk_order:null };
+
+async function call(path, method, body, role){
+  const opt = { method:method, headers:{"Content-Type":"application/json"} };
+  if(role) opt.headers["X-API-Key"] = KEYS[role];
+  if(body!==undefined) opt.body = JSON.stringify(body);
+  const r = await fetch(path, opt);
+  let j;
+  try { j = await r.json(); } catch(e){ j = {raw:"响应不是JSON"}; }
+  return { status:r.status, data:j };
+}
+
+function show(el, res){
+  const o = el.querySelector(".out");
+  o.classList.add("on");
+  const d = res.data;
+  let head = "";
+  if(res.status>=200 && res.status<300){
+    head = d.tamper_detected ? "<FAIL> 检出篡改" : "<200> 正常";
+  } else {
+    head = "<" + res.status + "> 已拦截";
+  }
+  o.textContent = head + "\n" + JSON.stringify(d, null, 2);
+}
+
+const ACTS = [
+  {
+    no:"1", title:"链路完整性校验", tag:"起点", hl:false,
+    desc:"读取整条链，逐区块核对哈希、索引、时间戳、双签名、锁定高度六个维度，并从磁盘 chain.json 重新加载以防绕过。",
+    run: async(el)=>{
+      const res = await call("/api/auditor/verify-chain","GET");
+      if(res.data.total_blocks) ctx.blockNo = res.data.total_blocks;
+      return res;
+    }
+  },
+  {
+    no:"2", title:"广告商充值书币", tag:"写入", hl:false,
+    desc:"充值 200 书币（1 元 = 10 书币）。这一步会生成广告商钱包，是后续投放的前置条件。",
+    run: async(el)=>{
+      return await call("/api/advertiser/deposit","POST",
+        {advertiser_id:ctx.deposit, amount_coin:200}, "advertiser");
+    }
+  },
+  {
+    no:"3", title:"提交投放申请并锁定条款", tag:"核心", hl:true,
+    desc:"投放申请提交后，计费条款由服务端锁定（广告商无法自定义），素材指纹同时固化上链，供后续 AI 抽检比对。订单号与广告商私钥会自动带入下一步，无需手动复制。",
+    run: async(el)=>{
+      const res = await call("/api/advertiser/apply","POST",{
+        advertiser_id: ctx.deposit,
+        advertiser_name:"演示广告主",
+        writer_id: "WRITER_001",
+        book_title: "星际回响",
+        ad_type: "compliant_popup",
+        lock_amount_coin: 60,
+        material_text: "本书由官方正版独家授权阅读，广告内容合规，不含任何违规承诺。"
+      }, "advertiser");
+      if(res.data.order_id){ ctx.order_id = res.data.order_id; ctx.priv = res.data.advertiser_private_key_hex; }
+      return res;
+    }
+  },
+  {
+    no:"4", title:"注入非法计费条款 → 服务端拒绝", tag:"亮点1", hl:true,
+    desc:"服务端锁定条款：广告商试图把作家分成比例改成 100%（原本为40%），字段被直接拒绝，返回 422。这体现了「规则由平台锁定，广告商无法篡改」。",
+    run: async(el)=>{
+      return await call("/api/advertiser/apply","POST",{
+        advertiser_id: ctx.deposit,
+        advertiser_name:"演示广告主",
+        writer_id: "WRITER_001",
+        book_title: "星际回响",
+        ad_type: "compliant_popup",
+        lock_amount_coin: 60,
+        material_text: "本书由官方正版独家授权阅读，广告内容合规，不含任何违规承诺。",
+        writer_share_ratio: 1.0
+      }, "advertiser");
+    }
+  },
+  {
+    no:"5", title:"双方双签名上链", tag:"核心", hl:true,
+    desc:"广告商用自己的私钥签署条款，平台由老板钱包签署同一载荷，双方签名立即本地验签，全部通过才写入区块。私钥已由第 3 步自动带入。",
+    run: async(el)=>{
+      if(!ctx.order_id) return {status:0, data:{error:"请先执行第 3 步：提交投放申请"}};
+      return await call("/api/order/sign-agreement/"+ctx.order_id,"POST",
+        {advertiser_private_key_hex: ctx.priv}, "advertiser");
+    }
+  },
+  {
+    no:"6", title:"伪造私钥代签 → 拒绝", tag:"亮点2", hl:true,
+    desc:"用一把与任何账户都无关的私钥（64 个十六进制 1）冒名代签他人订单。签名本身可以验过，但服务端会比对登记公钥，发现不是订单归属人本人，直接返回 403。",
+    run: async(el)=>{
+      const fake = "1".repeat(64);
+      if(!ctx.atk_order){
+        // 冒名者是一个新账号，必须先充值，否则申请会因余额不足被拒，
+        // 根本走不到「代签」这一步，亮点就演示不出来。
+        await call("/api/advertiser/deposit","POST",
+          {advertiser_id:"ADV_ATTACK_01", amount_coin:100}, "advertiser");
+        const fk = await call("/api/advertiser/apply","POST",{
+          advertiser_id:"ADV_ATTACK_01", advertiser_name:"冒名者",
+          writer_id:"WRITER_002", book_title:"冒名测试",
+          ad_type:"banner", lock_amount_coin:10,
+          material_text:"测试素材"
+        },"advertiser");
+        if(!fk.data.order_id){
+          return {status:0, data:{error:"准备演示订单失败："+(fk.data.error||fk.status)}};
+        }
+        ctx.atk_order = fk.data.order_id;
+      }
+      return await call("/api/order/sign-agreement/"+ctx.atk_order,"POST",
+        {advertiser_private_key_hex: fake}, "advertiser");
+    }
+  },
+  {
+    no:"7", title:"篡改已上链数据 → 精确定位", tag:"最强", hl:true,
+    desc:"在链上找一个广告订单区块，把作家分成比例从 40% 改成 90%并重新落盘。然后再次校验链：应能检出篡改，并精确报出被篡改的区块号。注意区块号可能不是 4，取决于当前链的长度。",
+    run: async(el)=>{
+      const first = await call("/api/auditor/verify-chain","GET");
+      const before = first.data;
+      let target = null;
+      try {
+        const raw = await fetch("/api/auditor/all?type=ad_order_onchain").then(r=>r.json());
+        if(raw && raw.records){
+          for(const r of raw.records){ if(r.index){ target = r.index; break; } }
+        }
+      } catch(e){}
+      if(target===null){
+        return {status:0, data:{error:"未找到可演示的订单区块，请先执行第 5 步"}};
+      }
+      el.querySelector(".tip").textContent =
+        "本次将篡改区块 #" + target + "。篡改前区块数：" + before.total_blocks;
+      const t = await fetch("/__demo__/tamper?index="+target, {method:"POST"});
+      const ti = await t.json();
+      if(!ti.success){ return {status:0, data:ti}; }
+      await new Promise(r=>setTimeout(r,300));
+      const after = await call("/api/auditor/verify-chain","GET");
+      return { status: after.status, data: after.data, _target: target };
+    }
+  },
+  {
+    no:"8", title:"还原链数据并复验", tag:"收尾", hl:false,
+    desc:"把篡改的区块改回原值，再次校验。链恢复合法，证明篡改检出是双向可信的：改得出来，也查得出来，还原后依然全绿。",
+    run: async(el)=>{
+      await fetch("/__demo__/restore", {method:"POST"});
+      await new Promise(r=>setTimeout(r,300));
+      return await call("/api/auditor/verify-chain","GET");
+    }
+  },
+  {
+    no:"0", title:"恢复初始状态（重置演示）", tag:"备用", hl:false,
+    desc:"清空链数据并回到干净的创世区块。任何时候演示乱了，点这个重来。",
+    special:"reset"
+  }
+];
+
+const box = document.getElementById("acts");
+ACTS.forEach(a=>{
+  const el = document.createElement("div");
+  el.className = "act";
+  const tagCls = a.hl ? "tag hl" : "tag";
+  el.innerHTML =
+    '<div class="act-h"><div class="no">'+a.no+'</div><div class="ti">'+a.title+'</div>'+
+    '<div class="'+tagCls+'">'+a.tag+'</div></div>'+
+    '<div class="body"><div class="desc">'+a.desc+'</div>'+
+    '<div class="row"><button class="run">执行</button>'+
+    '<button class="ghost showbtn" style="display:none">查看返回数据</button></div>'+
+    '<div class="tip">点上面「执行」按钮运行这一步。</div>'+
+    '<div class="out"></div></div>';
+  el.querySelector(".act-h").addEventListener("click", ()=>{
+    el.classList.toggle("open");
+  });
+  const btn = el.querySelector(".run");
+  btn.addEventListener("click", async()=>{
+    btn.disabled = true; btn.textContent = "执行中…";
+    try{
+      if(a.special==="reset"){
+        await fetch("/__demo__/reset", {method:"POST"});
+        ctx = { order_id:null, priv:null, deposit:"ADV_DEMO_01", atk_order:null };
+        show(el, {status:200, data:{success:true, message:"已重置为初始创世区块，可以从第 1 步重新开始"}});
+      } else {
+        const res = await a.run(el);
+        show(el, res);
+        const sb = el.querySelector(".showbtn");
+        sb.style.display = "inline-block";
+      }
+    }catch(err){
+      el.querySelector(".out").classList.add("on");
+      el.querySelector(".out").textContent = "<ERR> 调用失败：" + err.message;
+    }
+    btn.disabled = false; btn.textContent = "执行";
+  });
+  el.querySelector(".showbtn").addEventListener("click", ()=>{
+    el.querySelector(".out").classList.toggle("on");
+  });
+  box.appendChild(el);
+});
+</script>
+</body>
+</html>

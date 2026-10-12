@@ -51,8 +51,11 @@
    * 角色鉴权：写接口需携带对应角色 API Key（环境变量配置，Demo 默认兜底）
 
  启动：
-   python -m uvicorn main:app --reload
-   浏览器打开 http://localhost:8000/docs  (Swagger 自动列出全部 18 个接口)
+   python -m uvicorn main:app --reload            # 默认 8000
+   python main.py                                  # 等价，默认 8000
+   换端口时用 --port 8899，并同时设 ADCHAIN_PORT=8899，
+   这样启动横幅会打印出与实际一致的文档地址。
+   浏览器打开 http://127.0.0.1:<端口>/docs  (Swagger 自动列出全部 18 个接口)
 
  文件结构（单文件，不拆分、不生成 __init__.py）：
    第一部分：存证链核心   Block / Blockchain / Wallet / Ledger
@@ -71,6 +74,7 @@ import json
 import logging
 import os
 import random
+import shutil
 import re
 import secrets
 import threading
@@ -86,9 +90,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
 )
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Security
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, ConfigDict, Field
 
 # ==============================================================================
@@ -1421,6 +1426,18 @@ monthly_reports: Dict[str, dict] = {}
 #   或直接沿用本项目已有的 Ed25519 私钥持有证明（见接口 ⑰ 的强度对比）。
 _API_KEY_HEADER = "X-API-Key"
 
+# 声明式安全方案：让 Swagger /docs 右上角出现 Authorize 按钮。
+# auto_error=False 是关键——校验失败时交回 require_api_key 统一返回中文 403，
+# 避免 FastAPI 先抛出一个英文的 "Not authenticated" 抢在我们之前。
+_API_KEY_SCHEME = APIKeyHeader(
+    name=_API_KEY_HEADER,
+    auto_error=False,
+    description=(
+        "填入对应角色的 Demo 密钥后，页面内所有写接口都会自动带上该请求头。"
+        "只读接口（查询、审计校验）公开可查，不需要密钥。"
+    ),
+)
+
 # 各角色密钥：优先读环境变量 ADCHAIN_KEY_<ROLE>，未配置则回落到 Demo 默认值
 _ROLE_KEY_ENV = {
     "boss": "ADCHAIN_KEY_BOSS",
@@ -1523,8 +1540,17 @@ def require_api_key(request: Request, *allowed: Role) -> None:
 
 
 def require_role(*roles: Role):
-    """生成 FastAPI 依赖闭包：绑定固定的允许角色集合。"""
-    async def _dep(request: Request) -> None:
+    """
+    生成 FastAPI 依赖闭包：绑定固定的允许角色集合。
+
+    这里额外声明 APIKeyHeader 安全方案，作用是让 Swagger 页面右上角
+    出现「Authorize」按钮，演示时可以填一次密钥、全程所有写接口自动带上，
+    不必在每个接口的 Headers 里手动重复填写。
+    """
+    async def _dep(
+        request: Request,
+        api_key: str = Security(_API_KEY_SCHEME),
+    ) -> None:
         require_api_key(request, *roles)
     return _dep
 
@@ -2861,10 +2887,116 @@ def _startup_banner():
                 encryption_algorithm=serialization.NoEncryption()).hex()
             print(f"   - {acc.id}({acc.name}): {priv}")
 
-    print(" 文档地址: http://localhost:8000/docs")
+    # 【为什么提示的端口要跟着实际启动端口走】
+    #   原先写死 8000，实测用 `--port 8899` 启动时横幅仍提示 8000，
+    #   演示现场照着提示点会直接 404，很影响观感。
+    #   本函数在 startup 事件中执行，此时拿不到 uvicorn 的 config，
+    #   因此改为读取约定的环境变量 ADCHAIN_PORT（由 __main__ 入口写入），
+    #   读不到再回退到默认 8000。
+    print(f" 文档地址: http://127.0.0.1:{os.getenv('ADCHAIN_PORT', '8000')}/docs")
+    print(f" 演示控制台: http://127.0.0.1:{os.getenv('ADCHAIN_PORT', '8000')}/demo")
     print("=" * 70)
+
+
+# ============================================================
+#  演示控制台（仅本地演示辅助，不属于业务接口）
+# ============================================================
+#  【为什么要单独做一个页面】
+#   Swagger 面向开发者：需要手动拼 JSON、手动填请求头、逐个点 Execute。
+#   评委往往不是开发者，也不清楚要填什么，容易卡在第一步。
+#   这个页面把「演示脚本」固化下来，评审只需按顺序点「执行」按钮，
+#   全程无需输入任何 JSON、无需填写任何密钥。
+#
+#  【安全边界】
+#   以下接口会直接改写 chain.json，仅用于本地课堂/竞赛演示，
+#   严禁暴露到公网，也不属于 18 个正式业务接口之一。
+
+_DEMO_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo_console.html")
+_DEMO_BACKUP = CHAIN_FILE + ".demo.bak"
+_TAMPER_KEY = "writer_share_ratio"
+_TAMPER_FROM = 0.4
+_TAMPER_TO = 0.9
+
+
+@app.get("/demo", include_in_schema=False)
+def demo_console():
+    """返回演示控制台页面（本地演示辅助，不出现在接口文档里）。"""
+    return FileResponse(_DEMO_HTML, media_type="text/html; charset=utf-8")
+
+
+@app.post("/__demo__/tamper", include_in_schema=False)
+def demo_tamper(index: int):
+    """
+    演示辅助：把指定区块的作家分成比例从 0.4 篡改成 0.9 并落盘。
+
+    【为什么必须指定区块号，而不是全局替换】
+      链上 `"writer_share_ratio": 0.4` 会在多个区块里同时出现
+      （订单区块、广告区块等都带这个字段）。如果全局替换，
+      会一次改掉多个区块，校验时报出的区块号是其中最早的一个，
+      和口播里说的区块号对不上，演示时数字自相矛盾。
+      所以这里只改指定区块内的第一处，保证「报出的区块号 == 实际篡改的区块」。
+    """
+    # 先备份原始链，供还原使用
+    if not os.path.exists(_DEMO_BACKUP):
+        shutil.copyfile(CHAIN_FILE, _DEMO_BACKUP)
+    try:
+        with open(CHAIN_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取链文件失败：{e}")
+
+    old = f'"{_TAMPER_KEY}": {_TAMPER_FROM}'
+    new = f'"{_TAMPER_KEY}": {_TAMPER_TO}'
+    hit = 0
+    for b in data.get("blocks", []):
+        if b.get("index") == index:
+            s = json.dumps(b.get("data", {}), ensure_ascii=False)
+            if old in s:
+                b["data"] = json.loads(s.replace(old, new, 1))
+                hit = 1
+            break
+    if not hit:
+        raise HTTPException(status_code=404,
+                            detail=f"区块 #{index} 中没有找到 {_TAMPER_KEY}={_TAMPER_FROM}，无法演示篡改")
+
+    with open(CHAIN_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return {"success": True, "tampered_index": index,
+            "note": f"区块 #{index} 的 {_TAMPER_KEY} 已从 {_TAMPER_FROM} 改为 {_TAMPER_TO}"}
+
+
+@app.post("/__demo__/restore", include_in_schema=False)
+def demo_restore():
+    """演示辅助：从备份还原链数据（撤销篡改）。"""
+    if not os.path.exists(_DEMO_BACKUP):
+        raise HTTPException(status_code=404, detail="没有找到备份文件，无需还原")
+    shutil.copyfile(_DEMO_BACKUP, CHAIN_FILE)
+    return {"success": True, "note": "链数据已从备份还原"}
+
+
+@app.post("/__demo__/reset", include_in_schema=False)
+def demo_reset():
+    """
+    演示辅助：删除链文件与备份，重启为干净的创世区块。
+
+    重新从磁盘加载使内存中的链与磁盘一致，
+    这样「链上数据是唯一事实来源」这条约束在任何时候都成立。
+    """
+    for p in (CHAIN_FILE, _DEMO_BACKUP):
+        try:
+            if os.path.exists(p):
+                os.remove(p)
+        except Exception:
+            pass
+    chain.load_from_disk()
+    return {"success": True,
+            "total_blocks": len(chain.blocks),
+            "note": "已重置为初始创世区块，可从第 1 步重新开始"}
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 记录实际端口，供启动横幅提示正确的文档地址
+    _PORT = int(os.getenv("ADCHAIN_PORT", "8000"))
+    os.environ["ADCHAIN_PORT"] = str(_PORT)
+    uvicorn.run(app, host="0.0.0.0", port=_PORT)

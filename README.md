@@ -106,7 +106,8 @@ pip install -r requirements.txt
 ### 第 3 步：启动服务
 
 ```bash
-python -m uvicorn main:app --reload
+python -m uvicorn main:app --reload     # 开发模式（改代码自动重启）
+python main.py                           # 或直接运行 main.py，默认端口 8000
 ```
 
 看到以下输出即启动成功：
@@ -130,11 +131,25 @@ INFO:     Uvicorn running on http://127.0.0.1:8000
 > 因此 README 与演示脚本可以直接写死私钥、现场反复演示都不会失效。
 > 这是演示便利性取舍：生产环境私钥必须由作家自行生成并保管，服务端只登记公钥。
 
-### 第 4 步：打开接口文档
+### 第 4 步：打开演示页面
 
-浏览器访问 **http://127.0.0.1:8000/docs** —— Swagger UI 列出全部 18 个接口，
-每个接口都带中文说明。**在 Swagger 里直接点 Try it out 即可完成演示**，
-写操作需在请求头带上 `X-API-Key`（Swagger 会自动提供该输入框）。
+**推荐（面向评审与演示）**：浏览器访问 **http://127.0.0.1:8000/demo**
+
+这是为演示做的控制台页面，把完整的 8 步演示流程固化成了按钮，
+**评审只需按顺序点「执行」，无需手动填写任何 JSON 或密钥**。
+每一步都会显示该接口的真实返回数据，字段与数值完整可读。
+
+配套的验证脚本在 `verify_demo_console.py`，可一条命令跑完整个演示流程。
+
+**开发者调试**：浏览器访问 **http://127.0.0.1:8000/docs**
+
+Swagger UI 列出全部 18 个接口，每个接口都带中文说明。
+在 Swagger 里操作需要先点右上角 **`Authorize`** 按钮，
+填入对应角色的 Demo 密钥（填一次，页面内所有写接口自动带上该请求头），
+再点 `Try it out` 粘贴请求体执行。
+
+> 注意：Swagger 面向开发者，需要理解 JSON 与 HTTP；
+> 演示给评审请优先用 `/demo` 控制台页面。
 
 ### 第 5 步：（可选）配置正式密钥
 
@@ -163,7 +178,7 @@ $env:ADCHAIN_KEY_BOSS = "你的高强度随机串"
 |---|---|
 | 写接口返回 403 | 缺少或错误的 `X-API-Key`，见下方接口表「所需密钥」列 |
 | 出现 `chain.json.broken.*` 文件 | 上次运行异常中断导致文件损坏；程序已自动备份并重建创世块，旧数据可从备份文件人工恢复 |
-| 端口被占用 | 换端口：`python -m uvicorn main:app --port 8080` |
+| 端口被占用 | 换端口：`python -m uvicorn main:app --port 8080`；若用 `python main.py` 启动，请同时设环境变量 `ADCHAIN_PORT=8080`，否则启动横幅会仍按 8000 提示文档地址 |
 | 想从头开始 | 删除 `chain.json` 与 `raw_exposure/`，重启即可重建 |
 
 ## 四之二、鉴权说明（Demo 密钥）
